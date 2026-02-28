@@ -172,7 +172,11 @@
 #define DRV_BASE_PATH_SD    "/sdcard"
 #define DRV_BASE_PATH_FLASH "/spiffs"
 
-#define BSP_PWR_START_UP (BSP_PWR_SDCARD | BSP_PWR_LCD | BSP_PWR_SYSTEM | BSP_PWR_AI_CHIP | BSP_PWR_CODEC_PA | BSP_PWR_GROVE | BSP_PWR_BAT_ADC)
+/*
+ * Keep all optional rails off during cold boot to avoid pop noise and random LCD
+ * artifacts before the application applies its own power policy.
+ */
+#define BSP_PWR_START_UP (0)
 
 #define DEC2BCD(d) (((((d) / 10) & 0x0f) << 4) + (((d) % 10) & 0x0f))
 #define BCD2DEC(b) (((((b) >> 4) & 0x0F) * 10) + ((b) & 0x0F))

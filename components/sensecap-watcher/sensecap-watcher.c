@@ -661,6 +661,13 @@ static lv_disp_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
     if (bsp_spi_bus_init() != ESP_OK)
         return NULL;
 
+    /*
+     * LCD rail is kept off during cold boot by default.
+     * Enable it only right before panel initialization.
+     */
+    BSP_ERROR_CHECK_RETURN_NULL(bsp_exp_io_set_level(BSP_PWR_LCD, 1));
+    vTaskDelay(pdMS_TO_TICKS(20));
+
     ESP_LOGD(TAG, "Initialize LCD panel");
 
     if (bsp_lcd_pannel_init(&panel_handle, &panel_io_handle) != ESP_OK)
