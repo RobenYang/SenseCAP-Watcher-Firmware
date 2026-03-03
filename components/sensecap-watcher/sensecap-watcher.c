@@ -6,6 +6,10 @@
 
 #include "sensecap-watcher.h"
 
+#ifndef CONFIG_LVGL_INPUT_DEVICE_SENSITIVITY
+#define CONFIG_LVGL_INPUT_DEVICE_SENSITIVITY 20
+#endif
+
 static const char *TAG = "BSP";
 
 static led_strip_handle_t rgb_led_handle = NULL;

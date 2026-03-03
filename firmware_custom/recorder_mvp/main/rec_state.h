@@ -1,0 +1,17 @@
+#pragma once
+
+typedef enum {
+    REC_STATE_STANDBY = 0,
+    REC_STATE_RECORDING,
+    REC_STATE_USB_EXPOSED,
+    REC_STATE_ERROR,
+} rec_state_t;
+
+typedef enum {
+    REC_EVENT_NONE = 0,
+    REC_EVENT_BTN_SHORT_PRESS,
+    REC_EVENT_USB_ATTACH,
+    REC_EVENT_USB_DETACH,
+    REC_EVENT_REC_TIMEOUT_SEGMENT,
+    REC_EVENT_SD_ERROR,
+} rec_event_t;
