@@ -2,14 +2,14 @@
 	path = components/rlottie/rlottie
 	url = https://github.com/Maxwelltoo/rlottie
 [submodule "examples/openai-realtime/components/esp-protocols"]
-	path = examples/openai-realtime/components/esp-protocols
+	path = watcher_reference/use_cases/openai-realtime/components/esp-protocols
 	url = https://github.com/espressif/esp-protocols.git
 [submodule "examples/openai-realtime/components/esp-libopus"]
-	path = examples/openai-realtime/components/esp-libopus
+	path = watcher_reference/use_cases/openai-realtime/components/esp-libopus
 	url = https://github.com/XasWorks/esp-libopus.git
 [submodule "examples/openai-realtime/deps/libpeer"]
-	path = examples/openai-realtime/deps/libpeer
+	path = watcher_reference/use_cases/openai-realtime/deps/libpeer
 	url = https://github.com/sean-der/libpeer
 [submodule "examples/openai-realtime/components/srtp"]
-	path = examples/openai-realtime/components/srtp
+	path = watcher_reference/use_cases/openai-realtime/components/srtp
 	url = https://git@github.com/sepfy/esp_ports

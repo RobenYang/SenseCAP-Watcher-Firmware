@@ -87,3 +87,18 @@ dependencies.lock
 
 # managed_components for examples
 managed_components
+
+# Media assets (globally ignored by policy)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.mp4
+*.mov
+*.avi

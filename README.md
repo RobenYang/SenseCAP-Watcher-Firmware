@@ -35,10 +35,10 @@ to setup the built toolchain used by SSCMA examples. Currently we're using the l
 
 ### Build and Run Examples
 
-1. Go to examples folder and list all available examples.
+1. Go to use cases archive folder and list all available demos.
 
     ```sh
-    cd examples && \
+    cd watcher_reference/use_cases && \
     ls
     ```
 
