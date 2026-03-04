@@ -3,7 +3,6 @@
 #include "rec_storage.h"
 #include "rec_input.h"
 #include "rec_ui.h"
-#include "rec_led.h"
 #include "rec_power.h"
 
 #include "freertos/FreeRTOS.h"
@@ -14,6 +13,7 @@
 #include "sensecap-watcher.h"
 
 #define REC_APP_LOOP_MS           10
+#define REC_APP_LOOP_IDLE_MS      50
 #define REC_APP_FRAME_MS          33
 #define REC_APP_BATTERY_MS        1000
 #define REC_APP_POWEROFF_UI_MS    120
@@ -23,7 +23,6 @@ static rec_state_t s_state = REC_STATE_STANDBY;
 static bool s_storage_ready;
 static bool s_audio_ready;
 static bool s_input_ready;
-static bool s_led_ready;
 static bool s_ui_ready;
 
 static void rec_app_enter_error(void)
@@ -32,7 +31,6 @@ static void rec_app_enter_error(void)
     rec_audio_set_pcm_callback(NULL, NULL);
     (void)rec_audio_stop();
     (void)rec_storage_stop_recording();
-    rec_led_set_enabled(false);
     rec_ui_set_recording(false);
     if (s_ui_ready) {
         rec_ui_set_status_text("ERROR");
@@ -66,10 +64,8 @@ static esp_err_t rec_app_start_recording(void)
 
     rec_power_set_recording_mode(true);
     rec_ui_set_recording(true);
-    rec_led_set_enabled(true);
-    if (s_ui_ready) {
-        rec_ui_set_status_text("REC");
-    }
+    rec_ui_set_status_text("");
+    rec_ui_set_battery_percent(rec_power_read_battery_percent());
     s_state = REC_STATE_RECORDING;
     ESP_LOGI(TAG, "recording started");
     return ESP_OK;
@@ -81,12 +77,8 @@ static esp_err_t rec_app_stop_recording(void)
     (void)rec_audio_stop();
 
     esp_err_t ret = rec_storage_stop_recording();
-    rec_led_set_enabled(false);
     rec_ui_set_recording(false);
     rec_power_set_recording_mode(false);
-    if (s_ui_ready) {
-        rec_ui_set_status_text("IDLE");
-    }
     ESP_LOGI(TAG, "recording stopped");
     return ret;
 }
@@ -110,9 +102,6 @@ static void rec_app_handle_usb_attach(void)
     }
 
     s_state = REC_STATE_USB_EXPOSED;
-    if (s_ui_ready) {
-        rec_ui_set_status_text("USB");
-    }
     ESP_LOGI(TAG, "usb msc exposed");
 }
 
@@ -129,9 +118,6 @@ static void rec_app_handle_usb_detach(void)
 
     s_state = REC_STATE_STANDBY;
     rec_power_set_recording_mode(false);
-    if (s_ui_ready) {
-        rec_ui_set_status_text("IDLE");
-    }
     ESP_LOGI(TAG, "usb detached, back to standby");
 }
 
@@ -159,9 +145,6 @@ static void rec_app_power_off(void)
     }
     if (s_storage_ready) {
         (void)rec_storage_stop_recording();
-    }
-    if (s_led_ready) {
-        rec_led_set_enabled(false);
     }
     if (s_ui_ready) {
         rec_ui_set_recording(false);
@@ -206,19 +189,12 @@ void app_main(void)
         ESP_LOGE(TAG, "input init failed");
     }
 
-    s_led_ready = (rec_led_init() == ESP_OK);
-    if (!s_led_ready) {
-        ESP_LOGE(TAG, "led init failed");
-    }
-
     rec_power_set_recording_mode(false);
     if (s_ui_ready) {
         rec_ui_set_recording(false);
-        rec_ui_set_battery_percent(bsp_battery_get_percent());
-        rec_ui_set_status_text(s_storage_ready ? "IDLE" : "SD ERR");
-    }
-    if (s_led_ready) {
-        rec_led_set_enabled(false);
+        if (!s_storage_ready) {
+            rec_ui_set_status_text("SD ERR");
+        }
     }
 
     bool usb_attached_prev = s_storage_ready ? rec_storage_is_usb_attached() : false;
@@ -277,26 +253,21 @@ void app_main(void)
         }
 
         int64_t now_ms = esp_timer_get_time() / 1000;
-        if (s_ui_ready && (now_ms - last_battery_ms) >= REC_APP_BATTERY_MS) {
-            rec_ui_set_battery_percent(bsp_battery_get_percent());
+        if (s_ui_ready &&
+            s_state == REC_STATE_RECORDING &&
+            (now_ms - last_battery_ms) >= REC_APP_BATTERY_MS) {
+            rec_ui_set_battery_percent(rec_power_read_battery_percent());
             last_battery_ms = now_ms;
         }
 
         if (s_state == REC_STATE_RECORDING && (now_ms - last_frame_ms) >= REC_APP_FRAME_MS) {
-            uint8_t bins[REC_AUDIO_SPECTRUM_BINS];
-            rec_audio_levels_t levels;
-            rec_audio_get_levels(&levels);
-            rec_audio_get_spectrum(bins);
             if (s_ui_ready) {
-                rec_ui_set_spectrum(bins);
                 rec_ui_render_frame();
-            }
-            if (s_led_ready) {
-                rec_led_update_rms(levels.rms);
             }
             last_frame_ms = now_ms;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(REC_APP_LOOP_MS));
+        uint32_t delay_ms = (s_state == REC_STATE_RECORDING) ? REC_APP_LOOP_MS : REC_APP_LOOP_IDLE_MS;
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }

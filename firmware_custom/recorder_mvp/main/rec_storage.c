@@ -22,7 +22,7 @@
 #include "sensecap-watcher.h"
 #include "rec_audio.h"
 
-#define REC_STORAGE_USB_ATTACHED_LEVEL     1
+#define REC_STORAGE_USB_ATTACHED_LEVEL     0
 #define REC_STORAGE_PCM_STREAM_SIZE        (64 * 1024)
 #define REC_STORAGE_PCM_TRIGGER_LEVEL      (320 * sizeof(int16_t))
 #define REC_STORAGE_WRITER_STACK_SIZE      6144
