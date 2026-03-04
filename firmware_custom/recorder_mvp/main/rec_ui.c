@@ -4,14 +4,18 @@
 #include <string.h>
 
 #include "esp_lvgl_port.h"
+#include "esp_timer.h"
 
 #include "sensecap-watcher.h"
 
-#define REC_UI_RING_MARGIN         8
-#define REC_UI_RING_WIDTH          4
-#define REC_UI_RING_OPA_MIN        28
-#define REC_UI_RING_OPA_MAX        255
-#define REC_UI_RING_OPA_STEP       8
+#define REC_UI_RING_MARGIN             6
+#define REC_UI_RING_WIDTH              8
+#define REC_UI_RING_OPA_MIN            0
+#define REC_UI_RING_OPA_MAX            255
+#define REC_UI_FADE_WHITE_TO_BLACK_MS  3000
+#define REC_UI_HOLD_BLACK_MS           120
+#define REC_UI_FADE_BLACK_TO_WHITE_MS  3000
+#define REC_UI_HOLD_WHITE_MS           520
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_ring;
@@ -22,7 +26,14 @@ static bool s_recording;
 static uint8_t s_last_battery = 0xFF;
 static char s_last_status[24];
 static lv_opa_t s_ring_opa = REC_UI_RING_OPA_MIN;
-static int8_t s_ring_dir = 1;
+typedef enum {
+    REC_UI_PHASE_WHITE_TO_BLACK = 0,
+    REC_UI_PHASE_HOLD_BLACK,
+    REC_UI_PHASE_BLACK_TO_WHITE,
+    REC_UI_PHASE_HOLD_WHITE,
+} rec_ui_breathe_phase_t;
+static rec_ui_breathe_phase_t s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
+static int64_t s_phase_start_ms = 0;
 
 static inline int rec_ui_min(int a, int b)
 {
@@ -127,7 +138,8 @@ esp_err_t rec_ui_init(void)
     memset(s_last_status, 0, sizeof(s_last_status));
     s_recording = false;
     s_ring_opa = REC_UI_RING_OPA_MIN;
-    s_ring_dir = 1;
+    s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
+    s_phase_start_ms = esp_timer_get_time() / 1000;
 
     lvgl_port_unlock();
     return ESP_OK;
@@ -146,8 +158,9 @@ void rec_ui_set_recording(bool recording)
     }
 
     if (recording) {
-        s_ring_opa = REC_UI_RING_OPA_MIN;
-        s_ring_dir = 1;
+        s_ring_opa = REC_UI_RING_OPA_MAX;
+        s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
+        s_phase_start_ms = esp_timer_get_time() / 1000;
         lv_obj_clear_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
@@ -207,15 +220,56 @@ void rec_ui_render_frame(void)
         return;
     }
 
-    int next_opa = (int)s_ring_opa + (int)(s_ring_dir * REC_UI_RING_OPA_STEP);
-    if (next_opa >= REC_UI_RING_OPA_MAX) {
-        next_opa = REC_UI_RING_OPA_MAX;
-        s_ring_dir = -1;
-    } else if (next_opa <= REC_UI_RING_OPA_MIN) {
-        next_opa = REC_UI_RING_OPA_MIN;
-        s_ring_dir = 1;
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    int64_t elapsed_ms = now_ms - s_phase_start_ms;
+    if (elapsed_ms < 0) {
+        elapsed_ms = 0;
     }
-    s_ring_opa = (lv_opa_t)next_opa;
+
+    if (s_breathe_phase == REC_UI_PHASE_WHITE_TO_BLACK) {
+        if (elapsed_ms >= REC_UI_FADE_WHITE_TO_BLACK_MS) {
+            s_ring_opa = REC_UI_RING_OPA_MIN;
+            s_breathe_phase = REC_UI_PHASE_HOLD_BLACK;
+            s_phase_start_ms = now_ms;
+        } else {
+            // Accelerating fade-out: starts slow and gets faster near black.
+            uint32_t d = (uint32_t)REC_UI_FADE_WHITE_TO_BLACK_MS;
+            uint32_t t = (uint32_t)elapsed_ms;
+            uint32_t eased = (t * t * 255U) / (d * d);
+            if (eased > 255U) {
+                eased = 255U;
+            }
+            s_ring_opa = (lv_opa_t)(255U - eased);
+        }
+    } else if (s_breathe_phase == REC_UI_PHASE_HOLD_BLACK) {
+        s_ring_opa = REC_UI_RING_OPA_MIN;
+        if (elapsed_ms >= REC_UI_HOLD_BLACK_MS) {
+            s_breathe_phase = REC_UI_PHASE_BLACK_TO_WHITE;
+            s_phase_start_ms = now_ms;
+        }
+    } else if (s_breathe_phase == REC_UI_PHASE_BLACK_TO_WHITE) {
+        if (elapsed_ms >= REC_UI_FADE_BLACK_TO_WHITE_MS) {
+            s_ring_opa = REC_UI_RING_OPA_MAX;
+            s_breathe_phase = REC_UI_PHASE_HOLD_WHITE;
+            s_phase_start_ms = now_ms;
+        } else {
+            // Decelerating fade-in: starts fast and slows near full white.
+            uint32_t d = (uint32_t)REC_UI_FADE_BLACK_TO_WHITE_MS;
+            uint32_t t = (uint32_t)elapsed_ms;
+            uint32_t inv = d - t;
+            uint32_t eased = 255U - ((inv * inv * 255U) / (d * d));
+            if (eased > 255U) {
+                eased = 255U;
+            }
+            s_ring_opa = (lv_opa_t)eased;
+        }
+    } else {
+        s_ring_opa = REC_UI_RING_OPA_MAX;
+        if (elapsed_ms >= REC_UI_HOLD_WHITE_MS) {
+            s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
+            s_phase_start_ms = now_ms;
+        }
+    }
 
     if (!lvgl_port_lock(0)) {
         return;
