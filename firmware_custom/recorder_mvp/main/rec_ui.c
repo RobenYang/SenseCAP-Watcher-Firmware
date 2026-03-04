@@ -9,7 +9,7 @@
 #include "sensecap-watcher.h"
 
 #define REC_UI_RING_MARGIN             6
-#define REC_UI_RING_WIDTH              8
+#define REC_UI_RING_WIDTH              10
 #define REC_UI_RING_OPA_MIN            0
 #define REC_UI_RING_OPA_MAX            255
 #define REC_UI_FADE_WHITE_TO_BLACK_MS  3000
@@ -17,66 +17,32 @@
 #define REC_UI_FADE_BLACK_TO_WHITE_MS  3000
 #define REC_UI_HOLD_WHITE_MS           520
 
-static lv_obj_t *s_root;
-static lv_obj_t *s_ring;
-static lv_obj_t *s_battery_label;
-static lv_obj_t *s_status_label;
-static bool s_recording;
-
-static uint8_t s_last_battery = 0xFF;
-static char s_last_status[24];
-static lv_opa_t s_ring_opa = REC_UI_RING_OPA_MIN;
 typedef enum {
     REC_UI_PHASE_WHITE_TO_BLACK = 0,
     REC_UI_PHASE_HOLD_BLACK,
     REC_UI_PHASE_BLACK_TO_WHITE,
     REC_UI_PHASE_HOLD_WHITE,
 } rec_ui_breathe_phase_t;
+
+static lv_obj_t *s_root;
+static lv_obj_t *s_ring;
+static lv_obj_t *s_battery_label;
+static lv_obj_t *s_status_label;
+
+static bool s_recording;
+static uint8_t s_last_battery = 0xFF;
+static char s_last_status[24];
+
+static lv_opa_t s_ring_opa = REC_UI_RING_OPA_MIN;
 static rec_ui_breathe_phase_t s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
 static int64_t s_phase_start_ms = 0;
 
-static inline int rec_ui_min(int a, int b)
+static void rec_ui_apply_ring_opa_locked(void)
 {
-    return (a < b) ? a : b;
-}
-
-static void rec_ui_draw_ring_event(lv_event_t *e)
-{
-    if (!s_recording) {
+    if (s_ring == NULL) {
         return;
     }
-
-    lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(e);
-    if (draw_ctx == NULL) {
-        return;
-    }
-
-    lv_obj_t *obj = lv_event_get_target(e);
-    lv_area_t coords;
-    lv_obj_get_coords(obj, &coords);
-
-    int w = lv_area_get_width(&coords);
-    int h = lv_area_get_height(&coords);
-    int cx = (coords.x1 + coords.x2) / 2;
-    int cy = (coords.y1 + coords.y2) / 2;
-
-    int outer_radius = rec_ui_min(w, h) / 2 - REC_UI_RING_MARGIN;
-    if (outer_radius < 4) {
-        return;
-    }
-
-    lv_draw_arc_dsc_t arc_dsc;
-    lv_draw_arc_dsc_init(&arc_dsc);
-    arc_dsc.color = lv_color_white();
-    arc_dsc.opa = s_ring_opa;
-    arc_dsc.width = REC_UI_RING_WIDTH;
-    arc_dsc.rounded = 1;
-
-    lv_point_t center = {
-        .x = (lv_coord_t)cx,
-        .y = (lv_coord_t)cy,
-    };
-    lv_draw_arc(draw_ctx, &arc_dsc, &center, outer_radius, 0, 359);
+    lv_obj_set_style_border_opa(s_ring, s_ring_opa, LV_PART_MAIN);
 }
 
 esp_err_t rec_ui_init(void)
@@ -114,11 +80,16 @@ esp_err_t rec_ui_init(void)
 
     s_ring = lv_obj_create(s_root);
     lv_obj_remove_style_all(s_ring);
-    lv_obj_set_size(s_ring, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_add_flag(s_ring, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(s_ring, DRV_LCD_H_RES - (REC_UI_RING_MARGIN * 2), DRV_LCD_V_RES - (REC_UI_RING_MARGIN * 2));
     lv_obj_center(s_ring);
-    lv_obj_add_event_cb(s_ring, rec_ui_draw_ring_event, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_set_style_bg_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_ring, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_ring, REC_UI_RING_WIDTH, LV_PART_MAIN);
+    lv_obj_set_style_border_side(s_ring, LV_BORDER_SIDE_FULL, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_outline_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(s_ring, LV_OBJ_FLAG_SCROLLABLE);
 
     s_battery_label = lv_label_create(s_root);
     lv_obj_set_style_text_color(s_battery_label, lv_color_white(), LV_PART_MAIN);
@@ -161,6 +132,7 @@ void rec_ui_set_recording(bool recording)
         s_ring_opa = REC_UI_RING_OPA_MAX;
         s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
         s_phase_start_ms = esp_timer_get_time() / 1000;
+        rec_ui_apply_ring_opa_locked();
         lv_obj_clear_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
@@ -274,6 +246,7 @@ void rec_ui_render_frame(void)
     if (!lvgl_port_lock(0)) {
         return;
     }
+    rec_ui_apply_ring_opa_locked();
     lv_obj_invalidate(s_ring);
     lvgl_port_unlock();
 }
