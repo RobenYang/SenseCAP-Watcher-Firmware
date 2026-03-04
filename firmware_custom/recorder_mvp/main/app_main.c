@@ -16,6 +16,7 @@
 #define REC_APP_LOOP_MS           10
 #define REC_APP_FRAME_MS          33
 #define REC_APP_BATTERY_MS        1000
+#define REC_APP_POWEROFF_UI_MS    120
 
 static const char *TAG = "rec_app";
 static rec_state_t s_state = REC_STATE_STANDBY;
@@ -134,6 +135,49 @@ static void rec_app_handle_usb_detach(void)
     ESP_LOGI(TAG, "usb detached, back to standby");
 }
 
+static void rec_app_power_off(void)
+{
+    ESP_LOGW(TAG, "long press power-off requested");
+
+    if (s_state == REC_STATE_USB_EXPOSED) {
+        if (s_ui_ready) {
+            rec_ui_set_status_text("USB LOCK");
+        }
+        ESP_LOGW(TAG, "power-off denied while usb storage exposed");
+        return;
+    }
+
+    if (s_state == REC_STATE_RECORDING) {
+        if (rec_app_stop_recording() != ESP_OK) {
+            rec_app_enter_error();
+        }
+    }
+
+    rec_audio_set_pcm_callback(NULL, NULL);
+    if (s_audio_ready) {
+        (void)rec_audio_stop();
+    }
+    if (s_storage_ready) {
+        (void)rec_storage_stop_recording();
+    }
+    if (s_led_ready) {
+        rec_led_set_enabled(false);
+    }
+    if (s_ui_ready) {
+        rec_ui_set_recording(false);
+        rec_ui_set_status_text("OFF");
+    }
+
+    (void)bsp_lcd_brightness_set(0);
+    vTaskDelay(pdMS_TO_TICKS(REC_APP_POWEROFF_UI_MS));
+
+    bsp_system_shutdown();
+
+    // Fallback when external power keeps the MCU rail alive.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    bsp_system_deep_sleep(0);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "recorder_mvp boot");
@@ -188,6 +232,11 @@ void app_main(void)
     while (1) {
         if (s_input_ready) {
             rec_input_update();
+        }
+
+        if (s_input_ready && rec_input_take_long_press()) {
+            rec_app_power_off();
+            continue;
         }
 
         if (s_storage_ready) {

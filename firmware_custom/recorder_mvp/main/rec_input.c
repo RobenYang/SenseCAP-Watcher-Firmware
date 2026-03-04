@@ -7,11 +7,14 @@
 #define REC_INPUT_DEBOUNCE_MS      25
 #define REC_INPUT_MIN_PRESS_MS     30
 #define REC_INPUT_MAX_SHORT_MS     1200
+#define REC_INPUT_LONG_PRESS_MS    1800
 
 static bool s_initialized;
 static bool s_raw_pressed;
 static bool s_stable_pressed;
 static bool s_short_press_pending;
+static bool s_long_press_pending;
+static bool s_long_press_fired;
 static uint32_t s_raw_change_ms;
 static uint32_t s_press_start_ms;
 
@@ -36,6 +39,8 @@ esp_err_t rec_input_init(void)
     s_raw_change_ms = now;
     s_press_start_ms = now;
     s_short_press_pending = false;
+    s_long_press_pending = false;
+    s_long_press_fired = false;
     s_initialized = true;
     return ESP_OK;
 }
@@ -58,17 +63,27 @@ void rec_input_update(void)
     }
 
     if (s_stable_pressed == s_raw_pressed) {
+        if (s_stable_pressed && !s_long_press_fired) {
+            uint32_t hold_ms = now - s_press_start_ms;
+            if (hold_ms >= REC_INPUT_LONG_PRESS_MS) {
+                s_long_press_pending = true;
+                s_long_press_fired = true;
+            }
+        }
         return;
     }
 
     s_stable_pressed = s_raw_pressed;
     if (s_stable_pressed) {
         s_press_start_ms = now;
+        s_long_press_fired = false;
         return;
     }
 
     uint32_t press_ms = now - s_press_start_ms;
-    if (press_ms >= REC_INPUT_MIN_PRESS_MS && press_ms <= REC_INPUT_MAX_SHORT_MS) {
+    if (!s_long_press_fired &&
+        press_ms >= REC_INPUT_MIN_PRESS_MS &&
+        press_ms <= REC_INPUT_MAX_SHORT_MS) {
         s_short_press_pending = true;
     }
 }
@@ -77,5 +92,12 @@ bool rec_input_take_short_press(void)
 {
     bool pending = s_short_press_pending;
     s_short_press_pending = false;
+    return pending;
+}
+
+bool rec_input_take_long_press(void)
+{
+    bool pending = s_long_press_pending;
+    s_long_press_pending = false;
     return pending;
 }
