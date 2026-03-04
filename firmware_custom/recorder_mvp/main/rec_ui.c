@@ -22,6 +22,7 @@
 static lv_obj_t *s_root;
 static lv_obj_t *s_ring;
 static lv_obj_t *s_battery_label;
+static lv_obj_t *s_status_label;
 static bool s_recording;
 
 static uint8_t s_target_bins[REC_AUDIO_SPECTRUM_BINS];
@@ -31,6 +32,7 @@ static uint8_t s_prev_bins_2[REC_AUDIO_SPECTRUM_BINS];
 static int16_t s_cos_q15[REC_AUDIO_SPECTRUM_BINS];
 static int16_t s_sin_q15[REC_AUDIO_SPECTRUM_BINS];
 static uint8_t s_last_battery = 0xFF;
+static char s_last_status[24];
 
 static inline int rec_ui_min(int a, int b)
 {
@@ -141,7 +143,7 @@ esp_err_t rec_ui_init(void)
     if (bsp_lvgl_get_disp() == NULL) {
         bsp_display_cfg_t cfg = {
             .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
-            .buffer_size = DRV_LCD_H_RES * 64,
+            .buffer_size = DRV_LCD_H_RES * 32,
             .double_buffer = false,
             .flags = {
                 .buff_dma = 0,
@@ -183,6 +185,12 @@ esp_err_t rec_ui_init(void)
     lv_label_set_text(s_battery_label, "BAT --%");
     lv_obj_center(s_battery_label);
 
+    s_status_label = lv_label_create(s_root);
+    lv_obj_set_style_text_color(s_status_label, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_label_set_text(s_status_label, "BOOT");
+    lv_obj_align_to(s_status_label, s_battery_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+
     lv_obj_add_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
     lv_obj_invalidate(s_root);
 
@@ -191,6 +199,7 @@ esp_err_t rec_ui_init(void)
     memset(s_frame_bins, 0, sizeof(s_frame_bins));
     memset(s_prev_bins_1, 0, sizeof(s_prev_bins_1));
     memset(s_prev_bins_2, 0, sizeof(s_prev_bins_2));
+    memset(s_last_status, 0, sizeof(s_last_status));
     s_recording = false;
 
     lvgl_port_unlock();
@@ -246,6 +255,26 @@ void rec_ui_set_battery_percent(uint8_t percent)
     lv_label_set_text(s_battery_label, text);
     lv_obj_center(s_battery_label);
 
+    lvgl_port_unlock();
+}
+
+void rec_ui_set_status_text(const char *text)
+{
+    if (s_status_label == NULL || text == NULL) {
+        return;
+    }
+
+    if (strncmp(s_last_status, text, sizeof(s_last_status) - 1) == 0) {
+        return;
+    }
+
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+
+    lv_label_set_text(s_status_label, text);
+    lv_obj_align_to(s_status_label, s_battery_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+    (void)snprintf(s_last_status, sizeof(s_last_status), "%s", text);
     lvgl_port_unlock();
 }
 

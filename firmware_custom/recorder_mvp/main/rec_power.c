@@ -3,7 +3,7 @@
 #include "sensecap-watcher.h"
 
 #define REC_POWER_RECORDING_BRIGHTNESS  70
-#define REC_POWER_STANDBY_BRIGHTNESS    0
+#define REC_POWER_STANDBY_BRIGHTNESS    8
 
 static bool s_recording_mode;
 static bool s_initialized;
