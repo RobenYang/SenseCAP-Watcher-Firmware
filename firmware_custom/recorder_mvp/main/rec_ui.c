@@ -32,17 +32,22 @@ static lv_obj_t *s_status_label;
 static bool s_recording;
 static uint8_t s_last_battery = 0xFF;
 static char s_last_status[24];
-
-static lv_opa_t s_ring_opa = REC_UI_RING_OPA_MIN;
+static uint8_t s_ring_luma = REC_UI_RING_OPA_MIN;
 static rec_ui_breathe_phase_t s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
 static int64_t s_phase_start_ms = 0;
 
-static void rec_ui_apply_ring_opa_locked(void)
+static lv_color_t rec_ui_ring_color_from_gray(uint8_t gray)
+{
+    return lv_color_make(gray, gray, gray);
+}
+
+static void rec_ui_apply_ring_style_locked(void)
 {
     if (s_ring == NULL) {
         return;
     }
-    lv_obj_set_style_border_opa(s_ring, s_ring_opa, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(s_ring, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_ring, rec_ui_ring_color_from_gray(s_ring_luma), LV_PART_MAIN);
 }
 
 esp_err_t rec_ui_init(void)
@@ -87,6 +92,7 @@ esp_err_t rec_ui_init(void)
     lv_obj_set_style_border_width(s_ring, REC_UI_RING_WIDTH, LV_PART_MAIN);
     lv_obj_set_style_border_side(s_ring, LV_BORDER_SIDE_FULL, LV_PART_MAIN);
     lv_obj_set_style_radius(s_ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(s_ring, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_outline_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_shadow_opa(s_ring, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_clear_flag(s_ring, LV_OBJ_FLAG_SCROLLABLE);
@@ -108,9 +114,10 @@ esp_err_t rec_ui_init(void)
 
     memset(s_last_status, 0, sizeof(s_last_status));
     s_recording = false;
-    s_ring_opa = REC_UI_RING_OPA_MIN;
+    s_ring_luma = REC_UI_RING_OPA_MIN;
     s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
     s_phase_start_ms = esp_timer_get_time() / 1000;
+    rec_ui_apply_ring_style_locked();
 
     lvgl_port_unlock();
     return ESP_OK;
@@ -129,10 +136,10 @@ void rec_ui_set_recording(bool recording)
     }
 
     if (recording) {
-        s_ring_opa = REC_UI_RING_OPA_MAX;
+        s_ring_luma = REC_UI_RING_OPA_MAX;
         s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
         s_phase_start_ms = esp_timer_get_time() / 1000;
-        rec_ui_apply_ring_opa_locked();
+        rec_ui_apply_ring_style_locked();
         lv_obj_clear_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_ring, LV_OBJ_FLAG_HIDDEN);
@@ -200,7 +207,7 @@ void rec_ui_render_frame(void)
 
     if (s_breathe_phase == REC_UI_PHASE_WHITE_TO_BLACK) {
         if (elapsed_ms >= REC_UI_FADE_WHITE_TO_BLACK_MS) {
-            s_ring_opa = REC_UI_RING_OPA_MIN;
+            s_ring_luma = REC_UI_RING_OPA_MIN;
             s_breathe_phase = REC_UI_PHASE_HOLD_BLACK;
             s_phase_start_ms = now_ms;
         } else {
@@ -211,17 +218,17 @@ void rec_ui_render_frame(void)
             if (eased > 255U) {
                 eased = 255U;
             }
-            s_ring_opa = (lv_opa_t)(255U - eased);
+            s_ring_luma = (uint8_t)(255U - eased);
         }
     } else if (s_breathe_phase == REC_UI_PHASE_HOLD_BLACK) {
-        s_ring_opa = REC_UI_RING_OPA_MIN;
+        s_ring_luma = REC_UI_RING_OPA_MIN;
         if (elapsed_ms >= REC_UI_HOLD_BLACK_MS) {
             s_breathe_phase = REC_UI_PHASE_BLACK_TO_WHITE;
             s_phase_start_ms = now_ms;
         }
     } else if (s_breathe_phase == REC_UI_PHASE_BLACK_TO_WHITE) {
         if (elapsed_ms >= REC_UI_FADE_BLACK_TO_WHITE_MS) {
-            s_ring_opa = REC_UI_RING_OPA_MAX;
+            s_ring_luma = REC_UI_RING_OPA_MAX;
             s_breathe_phase = REC_UI_PHASE_HOLD_WHITE;
             s_phase_start_ms = now_ms;
         } else {
@@ -233,10 +240,10 @@ void rec_ui_render_frame(void)
             if (eased > 255U) {
                 eased = 255U;
             }
-            s_ring_opa = (lv_opa_t)eased;
+            s_ring_luma = (uint8_t)eased;
         }
     } else {
-        s_ring_opa = REC_UI_RING_OPA_MAX;
+        s_ring_luma = REC_UI_RING_OPA_MAX;
         if (elapsed_ms >= REC_UI_HOLD_WHITE_MS) {
             s_breathe_phase = REC_UI_PHASE_WHITE_TO_BLACK;
             s_phase_start_ms = now_ms;
@@ -246,7 +253,7 @@ void rec_ui_render_frame(void)
     if (!lvgl_port_lock(0)) {
         return;
     }
-    rec_ui_apply_ring_opa_locked();
+    rec_ui_apply_ring_style_locked();
     lv_obj_invalidate(s_ring);
     lvgl_port_unlock();
 }
