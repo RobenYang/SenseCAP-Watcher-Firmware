@@ -102,3 +102,6 @@ managed_components
 *.mp4
 *.mov
 *.avi
+
+# Local scratch directories
+/_tmp_*/
