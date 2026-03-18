@@ -1,102 +1,107 @@
-# 待机续航基底说明
+# 深睡录音基底说明
 
 ## 目标
-- 明确本固件为何是“待机续航基底”。
-- 固化当前版本的低功耗设计策略，避免后续加功能时把待机功耗悄悄拉高。
-- 给后续开发者一份可直接执行的“扩展前检查单”。
+- 固化当前版本为何是“深睡唤醒录音”基底，而不是待机功耗统计工具。
+- 在保证深睡路径短的前提下，为后续录音相关功能提供稳定起点。
+- 把功耗分析从“机内实时计算”改为“关键事件落日志，后续离线分析”。
 
 ## 基底定位
-- 本固件不是通用应用框架，而是 **SenseCAP Watcher 自研低功耗基底**。
-- 本基底优先保证三件事：
-  1. 待机路径短且稳定。
-  2. 未使用硬件默认不上电。
-  3. 电量采样尽量在低负载窗口进行，降低显示负载对估算结果的污染。
-- 后续如果要在此基础上增加功能，必须先确认：
-  1. 新版本的待机功耗与本基底版本对齐；
-  2. 新增功能只在需要时才上电；
-  3. 每新增一项能力，都要重新验证深睡前 rail 状态、唤醒路径与电量估算稳定性。
+- 本固件是 **SenseCAP Watcher 自研深睡录音基底**。
+- 这一版优先保证四件事：
+  1. 深睡到开始录音的路径尽量短。
+  2. 录音状态有最小但明确的屏幕与 LED 反馈。
+  3. 录音文件与关键事件日志可靠落到 SD 卡。
+  4. 睡前再采一次稳定电量，为后续功耗分析提供原始事实。
 
 ## 当前结论
-- 当前实测续航仍可接受。
-- 因此，本分支应作为后续“在低功耗前提下逐步加功能”的起点，而不是再沿用原先与功能不匹配的分支命名。
+- 机内不再计算 `%/h` 或睡眠期损耗结论。
+- 本版只负责记录原始事实：唤醒、录音开始、停止保存、睡前稳定电量等关键节点。
+- 后续功耗分析应由日志读取阶段完成，而不是在设备内实时计算。
 
-## 续航优化策略
+## 设计策略
 
-### 1. 电源域最小化
-- 除显示、系统基础电源与必要采样链路外，默认不打开额外硬件。
-- 当前常态关闭的 rail 包括：
+### 1. 唤醒优先录音
+- 从深睡唤醒后，优先启动录音相关链路。
+- 屏幕初始化放在录音启动之后，避免界面优先拖慢录音起点。
+- 唤醒初期不做稳定电量采样，避免额外等待。
+- 但如果唤醒原因是 USB-C 供电变化，而不是滚轮按钮，则优先进入 USB 供电界面，而不是直接开始录音。
+
+### 2. 极简界面
+- 保留 LCD，但只显示：
+  - 当前电量
+  - 录音时长
+  - 当前状态
+- USB-C 供电时额外允许显示：
+  - `Charging`
+  - `Charged`
+  - `Debug Mode`
+  - `ETA HH:MM`（粗略线性估算）
+- 不显示波形、菜单、文件名、待机损耗结论等额外信息。
+- 屏幕亮度固定低值，减少录音期间显示功耗。
+
+### 3. 稀疏日志
+- 日志只在关键动作时写入 SD，不做周期刷盘。
+- 日志目的是给后续离线调试提供时间点与电量事实，而不是在设备内得出分析结论。
+- 睡前稳定电量只记录，不在设备内与历史样本相减推导。
+
+### 4. 深睡前最小收尾
+- 停止录音后先完成文件排空与保存。
+- 若 USB-C 未供电，则之后关闭 LED、关闭显示、采集睡前稳定电量，并立刻回到深度休眠。
+- 若 USB-C 已供电，则录音结束后切回 USB 供电界面，不直接回睡。
+
+### 5. USB-C 供电分流
+- `VBUS` 状态只在启动分流、USB 供电界面和录音期间低频检测，不在普通未供电待机场景引入额外高频检查。
+- 纯供电影响设备显示充电界面；供电加数据连接时显示 `Debug Mode`。
+- `Debug Mode` 判定使用 ESP32-S3 的 `USB Serial/JTAG` 连接状态。
+- 为了区分“滚轮唤醒”和“USB-C 插入唤醒”，固件会在 RTC 中记住上次睡前的 `VBUS` 状态，并在下次启动时用于判断唤醒来源。
+
+## 当前低功耗原则
+- 未使用 rail 默认保持关闭：
   - `BSP_PWR_SDCARD`
   - `BSP_PWR_CODEC_PA`
   - `BSP_PWR_AI_CHIP`
   - `BSP_PWR_GROVE`
-- `BSP_PWR_BAT_ADC` 只在采样窗口短时打开，采样结束立即关闭，减少静态漏电。
-
-### 2. 显示只在必要时工作
-- 启动后先做低负载电池采样，再初始化界面。
-- 背光默认值设为 `0`，避免出现“背光先亮、画面后到”的空白闪屏。
-- 画面准备完成后再点亮背光，降低主观闪屏和无效耗电。
-- 进入深睡前先清屏，再关背光，再关 LCD rail，避免最后一帧残留和睡前额外显示负载。
-
-### 3. 电量估算在低负载窗口采样
-- 启动采样发生在 LCD 仍关闭的阶段。
-- 深睡前采样发生在背光关闭、LCD rail 关闭后的稳定窗口。
-- 这样做的目的是减少“显示一亮，电压瞬间下探，再快速回升”的负载扰动。
-- 待机损耗采用“深睡前采样”与“唤醒后采样”的差值估算，并换算为 `%/h`。
-
-### 4. 深睡路径保持极短
-- 交互只保留一个动作：按下滚轮按钮进入深度休眠。
-- 唤醒后只恢复最小显示与采样逻辑，不恢复任何非必要外设。
-- 不引入联网、音频、AI、文件系统写入等额外后台任务，避免隐藏功耗源。
-
-### 5. 亮屏状态也避免无意义刷新
-- 屏幕只显示最少信息：电量、当前电压、最近一次待机损耗、最近一次睡眠时长。
-- 亮屏期间的电量刷新采用低频周期刷新，而不是高频连续采样，避免把“观测动作”本身变成额外耗电源。
-
-## 后续扩展约束
-- 如果后续要基于该固件实现其他功能，必须遵守以下顺序：
-  1. 先在不改当前低功耗策略的情况下复测待机表现。
-  2. 再只增加一个新功能点，例如联网、音频或传感器。
-  3. 单独记录该功能增加前后的待机变化。
-  4. 若待机显著变差，先回退定位，再决定是否保留该功能。
-- 不允许一次性把多个高功耗模块同时接入，否则无法知道是哪一项破坏了待机基线。
+- `BSP_PWR_SDCARD` 只在录音与日志写盘阶段打开。
+- `BSP_PWR_BAT_ADC` 只在快速电量显示或睡前稳定采样窗口短时打开。
+- 深睡前关闭 LCD 与非必要 rail，保持下一次唤醒路径可重复。
 
 ## 推荐验证口径
-- 冷启动后记录亮屏电量、电压。
-- 按键进入深睡，保持固定待机时长。
-- 唤醒后记录：
-  - 深睡时长
-  - 唤醒后电压
-  - 损耗百分比
-  - 换算后的 `%/h`
-- 如需增加功能，应使用同一块板、同一电池状态、相近环境温度重复对比。
+- 每轮验证至少关注以下结果：
+  - `WAKE -> REC_START` 串口时间顺序
+  - LED 是否先于屏幕进入录音提示状态
+  - 屏幕是否正确显示 `Recording` 与录音时长
+  - `Saving...` 后是否成功生成 `.pcm` 文件
+  - `events.csv` 是否追加关键事件与睡前稳定电量
+  - 插入 USB-C 电源后不应自动开始录音
+  - 纯供电时应显示 `Charging` / `Charged`
+  - 供电加数据时应显示 `Debug Mode`
+  - 录音中插入 USB-C 后，本轮录音结束再切回 USB 界面
+- 如果后续继续扩展功能，应继续保持“每次只增加一个变量，再复测”的方式。
 
 ## 参考的官方文档段落
 
 | 来源 | 参考段落 | 本基底如何使用 |
 | --- | --- | --- |
-| `watcher_devkit_baseline/01_device_fact_sheet.md` | `## 固化事实` | 对齐设备基础能力：`ESP32-S3`、`32MB Flash`、`8MB PSRAM`，避免项目配置偏离硬件基线。 |
-| `watcher_devkit_baseline/03_bsp_minimum_contract.md` | `## 固化事实`、`### BSP 最小初始化顺序（必须）` | 只遵循最小必要上电与初始化顺序：先 I2C、再 IO Expander、再显示；不引入无关模块。 |
-| `watcher_devkit_baseline/04_dependency_floor_and_fallback.md` | `### 可复现起跑线（必须先满足）` | 保持 `ESP-IDF v5.2.1`、`32MB Flash`、`8MB PSRAM OCT 80M` 这类起跑线配置一致。 |
-| `watcher_reference/docs/hardware_modules/01_power_io_expander.md` | `## 固化事实`、`## 操作流程或约束` | 采用 IO 扩展器作为电源入口，遵守 `BSP_PWR_SYSTEM -> 延时 -> BSP_PWR_START_UP` 的上电时序。 |
-| `watcher_reference/docs/hardware_modules/03_display_touch_lvgl.md` | `## 固化事实`、`## 操作流程或约束` | 显示只在 bus 与 rail 就绪后初始化；背光通过 `bsp_lcd_brightness_set` 单独控制。 |
-| `watcher_reference/docs/hardware_modules/08_power_state_sleep.md` | `## 固化事实`、`## 操作流程或约束` | 深睡前主动拉低未使用 rail，并使用 IO expander 中断作为唤醒路径。 |
-| `watcher_reference/docs/hardware_modules/09_rtc_battery_adc.md` | `## 固化事实`、`## 操作流程或约束` | 电池电压与百分比只作为估算值；本基底进一步用低负载采样降低误差。 |
+| `watcher_devkit_baseline/03_bsp_minimum_contract.md` | `## 固化事实`、`### BSP 最小初始化顺序（必须）` | 对齐最小 bring-up 顺序，保留 I2C、IO Expander、显示、音频、SD 的初始化约束。 |
+| `watcher_reference/docs/hardware_modules/04_storage_spiffs_sd.md` | `## 固化事实`、`## 操作流程或约束` | 只使用 SD 默认挂载路径与存储约束，录音与日志都写到 SD。 |
+| `watcher_reference/docs/hardware_modules/05_audio_codec_i2s.md` | `## 固化事实`、`## 操作流程或约束` | 采用既有 I2S 参数与 codec 入口，保持 16k/16bit/mono。 |
+| `watcher_reference/docs/hardware_modules/07_input_knob_button_rgb.md` | `## 固化事实`、`## 操作流程或约束` | 使用滚轮按钮作为唤醒/停止录音输入，使用板载 RGB 灯作为录音指示。 |
+| `watcher_reference/docs/hardware_modules/08_power_state_sleep.md` | `## 固化事实`、`## 操作流程或约束` | 延续 IO expander 中断唤醒与深睡前 rail 下电策略。 |
 
 ## 与官方实现的边界
-- 本文档引用的是硬件事实、初始化顺序与低功耗约束。
-- 本基底没有迁移 `watcher_reference/use_cases/` 中的任务流、状态机、页面流程或业务调度结构。
-- 后续开发若需要更多功能，也应继续沿用“只引用契约，不复用官方业务实现”的边界。
+- 本基底只引用 BSP 接口、硬件引脚、总线与深睡约束。
+- 没有迁移 `watcher_reference/use_cases/` 中的任务流、页面流转、状态机或录音业务结构。
+- 当前录音状态机、日志格式、界面布局和文件落盘流程均为本目录内自研设计。
 
 ## 自检
 1. 使用了哪些 RequiredSpec 来源：
-   - `watcher_devkit_baseline/01_device_fact_sheet.md`
    - `watcher_devkit_baseline/03_bsp_minimum_contract.md`
-   - `watcher_devkit_baseline/04_dependency_floor_and_fallback.md`
-   - `watcher_reference/docs/hardware_modules/01_power_io_expander.md`
-   - `watcher_reference/docs/hardware_modules/03_display_touch_lvgl.md`
+   - `watcher_reference/docs/hardware_modules/04_storage_spiffs_sd.md`
+   - `watcher_reference/docs/hardware_modules/05_audio_codec_i2s.md`
+   - `watcher_reference/docs/hardware_modules/07_input_knob_button_rgb.md`
    - `watcher_reference/docs/hardware_modules/08_power_state_sleep.md`
-   - `watcher_reference/docs/hardware_modules/09_rtc_battery_adc.md`
+   - `components/sensecap-watcher/include/sensecap-watcher.h`
 2. 是否触发例外读取：
    - 未触发。
 3. 为何可证明当前实现为自主设计：
-   - 仅依据 BSP 公共接口、硬件时序与文档契约设计；未复用官方 use case 业务代码结构。
+   - 仅依据硬件契约、BSP 接口和低功耗约束完成自研录音状态机；未复用官方 use case 业务实现。
