@@ -83,10 +83,14 @@ build_linux*/
 size_info.txt
 
 # lock files for examples and components
-dependencies.lock
+**/dependencies.lock
+!firmware_custom/standby_battery_minimal/dependencies.lock
 
 # managed_components for examples
 managed_components
+
+# locally rehydrated installable dependencies
+components/lvgl/
 
 # Media assets (globally ignored by policy)
 *.png

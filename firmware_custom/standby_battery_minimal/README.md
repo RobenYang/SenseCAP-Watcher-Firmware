@@ -67,6 +67,12 @@ idf.py set-target esp32s3
 idf.py build
 ```
 
+## Dependency Notes
+- Some installable dependencies are intentionally not tracked in Git to keep the repo lightweight.
+- `components/lvgl/` is treated as a locally rehydrated dependency and should not be committed.
+- On a new machine, run `idf.py reconfigure` or `idf.py build` in `firmware_custom/standby_battery_minimal/` to restore managed dependencies into local working directories such as `managed_components/`.
+- Keep `dependencies.lock` so the restored dependency set stays reproducible across devices.
+
 ## 烧录与观察
 - 烧录后设备会进入深度休眠。
 - 按下滚轮按钮后开始唤醒并录音。
