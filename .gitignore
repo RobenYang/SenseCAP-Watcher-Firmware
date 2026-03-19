@@ -109,3 +109,11 @@ components/lvgl/
 
 # Local scratch directories
 /_tmp_*/
+
+# Local secrets and temp artifacts
+SecretKey.csv
+$null
+infra/sync_server/.env
+infra/sync_server/windows/.env
+**/__pycache__/
+**/*.pyc

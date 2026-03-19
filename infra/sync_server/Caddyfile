@@ -1,0 +1,9 @@
+:8080 {
+    reverse_proxy app:8080
+}
+
+sync.metasquilla.space {
+    encode zstd gzip
+    reverse_proxy app:8080
+}
+

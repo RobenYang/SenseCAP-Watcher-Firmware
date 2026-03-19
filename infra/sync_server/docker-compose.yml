@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      SYNC_UPLOAD_TOKEN: ${SYNC_UPLOAD_TOKEN}
+      SYNC_STORAGE_DIR: /data/uploads
+      SYNC_MAX_UPLOAD_MB: ${SYNC_MAX_UPLOAD_MB:-64}
+    volumes:
+      - ./data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+
