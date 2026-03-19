@@ -103,6 +103,7 @@ typedef struct
     uint32_t magic;
     uint32_t next_session_seq;
     uint8_t last_vbus_present;
+    uint8_t last_sd_inserted;
 } recorder_rtc_state_t;
 
 typedef struct
@@ -157,6 +158,11 @@ static bool is_vbus_present(void)
     return bsp_exp_io_get_level(BSP_PWR_VBUS_IN_DET) != 0;
 }
 
+static bool is_sd_inserted(void)
+{
+    return bsp_sdcard_is_inserted();
+}
+
 static bool is_usb_data_connected(void)
 {
     return usb_serial_jtag_is_connected();
@@ -170,6 +176,16 @@ static bool was_vbus_present_before_boot(void)
 static void set_rtc_vbus_present(bool present)
 {
     s_rtc_state.last_vbus_present = present ? 1U : 0U;
+}
+
+static bool was_sd_inserted_before_boot(void)
+{
+    return s_rtc_state.last_sd_inserted != 0;
+}
+
+static void set_rtc_sd_inserted(bool inserted)
+{
+    s_rtc_state.last_sd_inserted = inserted ? 1U : 0U;
 }
 
 static float clampf_range(float value, float min_value, float max_value)
@@ -992,6 +1008,8 @@ void app_main(void)
     bool enter_usb_mode = false;
     bool vbus_present = false;
     bool previous_vbus_present = false;
+    bool sd_inserted = false;
+    bool previous_sd_inserted = false;
     bool usb_mode_requested_after_record = false;
     int64_t last_ui_refresh_us = 0;
     int64_t last_usb_refresh_us = 0;
@@ -1012,7 +1030,10 @@ void app_main(void)
 
     vbus_present = is_vbus_present();
     previous_vbus_present = was_vbus_present_before_boot();
+    sd_inserted = is_sd_inserted();
+    previous_sd_inserted = was_sd_inserted_before_boot();
     set_rtc_vbus_present(vbus_present);
+    set_rtc_sd_inserted(sd_inserted);
 
     if (s_wakeup_cause != ESP_SLEEP_WAKEUP_EXT0)
     {
@@ -1027,10 +1048,28 @@ void app_main(void)
 
         enter_usb_mode = true;
     }
-    else if (vbus_present && !previous_vbus_present && !is_button_pressed())
+    else if (!is_button_pressed())
     {
-        ESP_LOGW(TAG, "VBUS wake detected");
-        enter_usb_mode = true;
+        vTaskDelay(pdMS_TO_TICKS(120));
+        vbus_present = is_vbus_present();
+        sd_inserted = is_sd_inserted();
+        set_rtc_vbus_present(vbus_present);
+        set_rtc_sd_inserted(sd_inserted);
+
+        if (vbus_present != previous_vbus_present)
+        {
+            ESP_LOGW(TAG, "VBUS wake detected");
+            enter_usb_mode = true;
+        }
+        else if (sd_inserted != previous_sd_inserted)
+        {
+            ESP_LOGW(TAG, "SD wake detected, returning to sleep");
+            set_rtc_vbus_present(vbus_present);
+            set_rtc_sd_inserted(sd_inserted);
+            wait_for_button_release();
+            enter_deep_sleep_now();
+            return;
+        }
     }
 
 usb_mode_start:
@@ -1285,11 +1324,14 @@ usb_mode_start:
     if (usb_mode_requested_after_record || is_vbus_present())
     {
         wait_for_button_release();
+        set_rtc_vbus_present(true);
+        set_rtc_sd_inserted(is_sd_inserted());
         enter_usb_mode = true;
         goto usb_mode_start;
     }
 
     set_rtc_vbus_present(false);
+    set_rtc_sd_inserted(is_sd_inserted());
     disable_display_for_sleep();
     ESP_ERROR_CHECK(force_optional_power_domains_off(false, false));
     vTaskDelay(pdMS_TO_TICKS(BATTERY_LCD_OFF_SETTLE_MS));
@@ -1365,6 +1407,8 @@ fail:
     if (is_vbus_present())
     {
         wait_for_button_release();
+        set_rtc_vbus_present(true);
+        set_rtc_sd_inserted(is_sd_inserted());
         enter_usb_mode = true;
         goto usb_mode_start;
     }
@@ -1375,5 +1419,6 @@ fail:
     }
 
     set_rtc_vbus_present(false);
+    set_rtc_sd_inserted(is_sd_inserted());
     enter_deep_sleep_now();
 }

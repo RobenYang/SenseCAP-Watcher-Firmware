@@ -131,11 +131,12 @@ dependencies:
       path: C:\Users\Metasquilla\Desktop\SenseCAP-Watcher-Firmware\components\knob
       type: local
     version: 0.1.4
-  lvgl:
+  lvgl/lvgl:
+    component_hash: d7c1ac037ae6e85d94897f807d6e7ba0946a83e720074fc95a4f6241da9f9f53
     dependencies: []
     source:
-      path: C:\Users\Metasquilla\Desktop\SenseCAP-Watcher-Firmware\components\lvgl
-      type: local
+      registry_url: https://components.espressif.com/
+      type: service
     version: 8.4.0
   sscma_client:
     dependencies: []
@@ -159,6 +160,6 @@ direct_dependencies:
 - idf
 - lvgl/lvgl
 - sscma_client
-manifest_hash: e4c4628feabe7a4fbf14ba8b10788f4d9d4a171896ab8480d0942050529825ab
+manifest_hash: 541b71b5ee3beabad9ed9aebb317678a952c8156ad1928ba208bd87c63b8c7b8
 target: esp32s3
 version: 2.0.0
